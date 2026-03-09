@@ -1,4 +1,4 @@
-﻿#ifndef __IOCP_DRIVER_H__
+#ifndef __IOCP_DRIVER_H__
 #define __IOCP_DRIVER_H__
 
 #include <WinSock2.h>

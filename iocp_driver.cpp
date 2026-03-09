@@ -1,4 +1,4 @@
-﻿#include "iocp_driver.h"
+#include "iocp_driver.h"
 
 #include <stdexcept>
 #include <list>
@@ -13,19 +13,19 @@ namespace IOCP_DRIVER {
 
 	// IO端口工作模式，工作线程以此决定行为
 	enum IOType {
-		IO_ACCEPT,
-		IO_RECV,
-		IO_SEND,
-        IO_CONNECTING,
+		IO_ACCEPT,    // 接受连接
+		IO_RECV,      // 接收数据
+		IO_SEND,      // 发送数据
+        IO_CONNECTING,// 连接中
 	};
 
 	// 通讯上下文
 	struct IO_context {
 
-		OVERLAPPED overlapped;
-		WSABUF wsa_buff{ NULL, 0 };
-		IOType io_type;
-		SOCKET fd = INVALID_SOCKET;
+		OVERLAPPED overlapped;      // 重叠I/O核心结构
+		WSABUF wsa_buff{ NULL, 0 }; // 数据缓冲区
+		IOType io_type;             // 操作类型
+		SOCKET fd = INVALID_SOCKET; // 关联的socket
 
 		~IO_context() {
 			if (wsa_buff.buf != NULL)

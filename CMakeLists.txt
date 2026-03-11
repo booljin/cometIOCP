@@ -1,68 +1,70 @@
-cmake_minimum_required(VERSION 3.8.2)
+# =============================================================================
+# CMake 最低版本 + 项目定义
+# =============================================================================
+cmake_minimum_required(VERSION 3.10)
+project(cometIOCP VERSION 1.0.0 LANGUAGES CXX)
 
-#设置C++版本
-set (CMAKE_CXX_STANDARD 14)
-#设置警告等级
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
-
-project(iocp_driver)
-
-#字符集unicode
-Add_Definitions(-DUNICODE -D_UNICODE)
-
-
-# Find includes in the build directories
-set(CMAKE_INCLUDE_CURRENT_DIR ON)
-
-
-set(src_files
-    iocp_driver.cpp
-)
-
-set(inc_files
-    iocp_driver.h
-)
-
+# =============================================================================
+# 库目标定义
+# =============================================================================
 add_library(${PROJECT_NAME}
-    ${src_files}    
-    ${inc_files}
-    
-)
-set_target_properties(${PROJECT_NAME} PROPERTIES
-  COMPILE_FLAGS "/EHsc"
+    src/driver.cpp
+    src/driver.h
+    src/types.h
+    src/util.h
+    include/cometIOCP.h
 )
 
+# =============================================================================
+# Target-specific 设置（不影响父项目）
+# =============================================================================
+
+# C++ 标准
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
+
+# MSVC 编译选项
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PUBLIC /utf-8)
+endif()
+
+# 编译定义
+target_compile_definitions(${PROJECT_NAME}
+    PUBLIC
+        WIN32_LEAN_AND_MEAN      # 减少 Windows.h 内容，加快编译
+        _WIN32_WINNT=0x0601      # 最低支持 Windows 7
+        UNICODE
+        _UNICODE
+)
+
+# 头文件搜索路径
 target_include_directories(${PROJECT_NAME}
-    PUBLIC .
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 )
 
-
-target_link_libraries(${PROJECT_NAME} 
+# 链接库
+target_link_libraries(${PROJECT_NAME}
+    PUBLIC
+        ws2_32
+        mswsock
 )
 
-add_executable(echo_server
-    test/server.cpp
-)
+# =============================================================================
+# 示例程序
+# =============================================================================
+add_executable(echo_server example/server.cpp)
+target_link_libraries(echo_server PRIVATE ${PROJECT_NAME})
 
-target_link_libraries(echo_server
-    ws2_32
-    ${PROJECT_NAME}
-)
-set_target_properties(echo_server PROPERTIES
-  LINK_FLAGS /SUBSYSTEM:CONSOLE
-  COMPILE_FLAGS "/EHsc"
-)
+add_executable(echo_client example/client.cpp)
+target_link_libraries(echo_client PRIVATE ${PROJECT_NAME})
 
-add_executable(echo_client
-    test/client.cpp
-)
+# =============================================================================
+# 测试程序
+# =============================================================================
+enable_testing()
 
-target_link_libraries(echo_client
-    ws2_32
-    ${PROJECT_NAME}
-)
+add_executable(stress_test test/stress_test.cpp)
+target_link_libraries(stress_test PRIVATE ${PROJECT_NAME})
 
-set_target_properties(echo_client PROPERTIES
-  LINK_FLAGS /SUBSYSTEM:CONSOLE
-  COMPILE_FLAGS "/EHsc"
-)
+add_test(NAME stress_test COMMAND stress_test)

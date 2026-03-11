@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  # 构建目录
+  BUILD_DIR: build
+
+jobs:
+  build-and-test:
+    name: Build and Test (Windows)
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        build_type: [ Debug, Release ]
+        architecture: [ x64 ]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure CMake
+      run: |
+        cmake -B ${{ env.BUILD_DIR }} `
+              -A ${{ matrix.architecture }} `
+              -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+    - name: Build
+      run: |
+        cmake --build ${{ env.BUILD_DIR }} `
+              --config ${{ matrix.build_type }} `
+              --target stress_test `
+              -- /m /nologo
+
+    - name: Run tests
+      run: |
+        ${{ env.BUILD_DIR }}/${{ matrix.build_type }}/stress_test.exe
+      timeout-minutes: 5
+
+    - name: Upload test artifacts (on failure)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-logs-${{ matrix.build_type }}
+        path: |
+          ${{ env.BUILD_DIR }}/**/*.log
+        retention-days: 7
+
+  # 可选：代码质量检查
+  code-quality:
+    name: Code Quality Check
+    runs-on: windows-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure CMake
+      run: |
+        cmake -B ${{ env.BUILD_DIR }} `
+              -A x64 `
+              -DCMAKE_BUILD_TYPE=Debug
+
+    - name: Build all targets
+      run: |
+        cmake --build ${{ env.BUILD_DIR }} `
+              --config Debug `
+              -- /m /nologo /warnaserror
+
+  # 可选：Release 构建
+  release-build:
+    name: Release Build
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure CMake
+      run: |
+        cmake -B ${{ env.BUILD_DIR }} `
+              -A x64 `
+              -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      run: |
+        cmake --build ${{ env.BUILD_DIR }} `
+              --config Release `
+              -- /m /nologo
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-binaries
+        path: |
+          ${{ env.BUILD_DIR }}/Release/*.exe
+          ${{ env.BUILD_DIR }}/Release/*.lib
+        retention-days: 30

@@ -62,5 +62,9 @@ target_link_libraries(echo_client PRIVATE ${PROJECT_NAME})
 # =============================================================================
 # 测试程序
 # =============================================================================
+enable_testing()
+
 add_executable(stress_test test/stress_test.cpp)
 target_link_libraries(stress_test PRIVATE ${PROJECT_NAME})
+
+add_test(NAME stress_test COMMAND stress_test)

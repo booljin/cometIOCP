@@ -28,7 +28,7 @@ int main() {
     // 注册协议
     int proto_id = client.register_protocol(
         // 连接回调
-        [&](SOCKET fd, IN_ADDR addr, int port) {
+        [&](SOCKET fd, const AddressInfo& addr) {
             std::cout << "连接成功: fd=" << fd << std::endl;
             client_fd = fd;
             connected = true;

@@ -1,6 +1,6 @@
 /*
  * cometIOCP - Driver 类声明
- * 
+ *
  * 这是用户主要使用的类，提供异步网络通信功能。
  */
 
@@ -9,6 +9,7 @@
 
 // Windows 头文件
 #include <WinSock2.h>
+#include <ws2tcpip.h>  // IPv6 支持
 #include <Windows.h>
 #include <MSWSock.h>  // AcceptEx, ConnectEx 等
 
@@ -21,22 +22,15 @@
 #include <mutex>
 #include <atomic>
 
+// 内部类型定义（包含 AddressInfo, ConnectCallback 等）
+#include "types.h"
+
 namespace comet_iocp {
 
 // ============================================================================
-// 回调函数类型定义
+// 监视器回调（其他回调已在 types.h 中定义）
 // ============================================================================
 
-// 连接回调：返回 0 接受连接，非 0 拒绝
-using ConnectCallback = std::function<int(SOCKET fd, IN_ADDR addr, int port)>;
-
-// 接收回调：返回已处理的字节数，-1 表示错误
-using RecvCallback = std::function<int(SOCKET fd, unsigned char* buff, int len)>;
-
-// 关闭回调
-using CloseCallback = std::function<void(SOCKET fd)>;
-
-// 监视器回调
 using MonitorCallback = std::function<void(int info, const std::string& msg)>;
 
 // ============================================================================

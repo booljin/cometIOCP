@@ -25,9 +25,17 @@ int main() {
     // 注册协议
     int proto_id = server.register_protocol(
         // 连接回调
-        [&](SOCKET fd, IN_ADDR addr, int port) {
-            std::cout << "客户端连接: fd=" << fd 
-                      << ", port=" << port << std::endl;
+        [&](SOCKET fd, const AddressInfo& addr) {
+            char buf[INET6_ADDRSTRLEN] = {0};
+            if (addr.is_ipv6()) {
+                inet_ntop(AF_INET6, &addr.get_ipv6(), buf, sizeof(buf));
+                std::cout << "客户端连接: fd=" << fd
+                          << ", addr=[" << buf << "]:" << addr.port << std::endl;
+            } else {
+                inet_ntop(AF_INET, &addr.get_ipv4(), buf, sizeof(buf));
+                std::cout << "客户端连接: fd=" << fd
+                          << ", addr=" << buf << ":" << addr.port << std::endl;
+            }
             return 0;
         },
         // 接收回调：Echo 服务

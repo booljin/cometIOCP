@@ -22,8 +22,8 @@ todolist/
 *.sln.docstates
 *.vcxproj.user
 
-# Visual Studio Code (optional - uncomment if you want to ignore)
-# .vscode/
+# Visual Studio Code
+.vscode/
 
 # JetBrains IDEs (CLion, etc.)
 .idea/

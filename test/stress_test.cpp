@@ -300,7 +300,7 @@ public:
         // 注册协议：处理客户端发送的数据
         server_proto_id_ = driver_.register_protocol(
             // 连接回调
-            [this](SOCKET fd, IN_ADDR addr, int port) {
+            [this](SOCKET fd, const comet_iocp::AddressInfo& addr) {
                 std::lock_guard<std::mutex> lock(clients_mutex_);
                 clients_[fd] = ClientState{};
                 // 如果有待发送的测试数据，立即发送
@@ -504,7 +504,7 @@ public:
         // 注册协议
         client_proto_id_ = driver_.register_protocol(
             // 连接回调：保存 fd 并通知连接成功
-            [this](SOCKET fd, IN_ADDR addr, int port) {
+            [this](SOCKET fd, const comet_iocp::AddressInfo& addr) {
                 fd_ = fd;  // 保存 socket fd
                 connected_ = true;
                 cv_.notify_one();

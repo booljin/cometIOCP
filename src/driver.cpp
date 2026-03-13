@@ -11,6 +11,30 @@
 
 namespace comet_iocp {
 
+// ============================================================================
+// 辅助函数：检测地址族
+// ============================================================================
+
+// 检测地址字符串是 IPv4 还是 IPv6
+// 返回 AF_INET, AF_INET6, 或 AF_UNSPEC（无效）
+static int detect_address_family(const std::string& addr) {
+    IN_ADDR ipv4_test;
+    if (inet_pton(AF_INET, addr.c_str(), &ipv4_test) == 1) {
+        return AF_INET;
+    }
+    
+    IN6_ADDR ipv6_test;
+    if (inet_pton(AF_INET6, addr.c_str(), &ipv6_test) == 1) {
+        return AF_INET6;
+    }
+    
+    return AF_UNSPEC;
+}
+
+// ============================================================================
+// Driver 类实现
+// ============================================================================
+
 Driver::Driver() {
     _iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
     if (_iocp == nullptr) {
@@ -79,7 +103,13 @@ int Driver::listen_on(const std::string& addr, int port, int protocol_id) {
         return COMET_ERROR_INVALID_PROTOCOL;
     }
     
-    SOCKET listen_fd = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+    // 检测地址族
+    int addr_family = detect_address_family(addr);
+    if (addr_family == AF_UNSPEC) {
+        return COMET_ERROR_INVALID_PARAMETER;
+    }
+    
+    SOCKET listen_fd = WSASocket(addr_family, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (INVALID_SOCKET == listen_fd) {
         return COMET_ERROR_FAIL;
     }
@@ -88,14 +118,28 @@ int Driver::listen_on(const std::string& addr, int port, int protocol_id) {
     node_ctx->fd = listen_fd;
     node_ctx->role = Role_Listener;
     node_ctx->protocol_id = protocol_id;
+    node_ctx->addr_family = addr_family;  // 保存地址族
 
-    sockaddr_in server_addr;
-    memset((char*)&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    inet_pton(AF_INET, addr.c_str(), &server_addr.sin_addr);
-    server_addr.sin_port = htons(port);
+    // 使用 sockaddr_storage 容纳 IPv4 或 IPv6 地址
+    sockaddr_storage server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    int addr_len = 0;
     
-    if ((SOCKET_ERROR == bind(listen_fd, (sockaddr*)&server_addr, sizeof(server_addr)))
+    if (addr_family == AF_INET) {
+        sockaddr_in* addr_in = (sockaddr_in*)&server_addr;
+        addr_in->sin_family = AF_INET;
+        inet_pton(AF_INET, addr.c_str(), &addr_in->sin_addr);
+        addr_in->sin_port = htons(port);
+        addr_len = sizeof(sockaddr_in);
+    } else { // AF_INET6
+        sockaddr_in6* addr_in6 = (sockaddr_in6*)&server_addr;
+        addr_in6->sin6_family = AF_INET6;
+        inet_pton(AF_INET6, addr.c_str(), &addr_in6->sin6_addr);
+        addr_in6->sin6_port = htons(port);
+        addr_len = sizeof(sockaddr_in6);
+    }
+    
+    if ((SOCKET_ERROR == bind(listen_fd, (sockaddr*)&server_addr, addr_len))
         || (SOCKET_ERROR == listen(listen_fd, SOMAXCONN))
         || (NULL == CreateIoCompletionPort((HANDLE)listen_fd, _iocp, (ULONG_PTR)node_ctx, 0))) {
         close_context(node_ctx);
@@ -138,7 +182,13 @@ int Driver::connect_to(const std::string& addr, int port, int protocol_id) {
         return COMET_ERROR_INVALID_PROTOCOL;
     }
     
-    SOCKET connect_fd = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
+    // 检测地址族
+    int addr_family = detect_address_family(addr);
+    if (addr_family == AF_UNSPEC) {
+        return COMET_ERROR_INVALID_PARAMETER;
+    }
+    
+    SOCKET connect_fd = WSASocket(addr_family, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (INVALID_SOCKET == connect_fd) {
         return COMET_ERROR_FAIL;
     }
@@ -147,6 +197,7 @@ int Driver::connect_to(const std::string& addr, int port, int protocol_id) {
     node_ctx->fd = connect_fd;
     node_ctx->role = Role_Client;
     node_ctx->protocol_id = protocol_id;
+    node_ctx->addr_family = addr_family;  // 保存地址族
 
     if (_connectex == NULL) {
         DWORD t;
@@ -164,19 +215,45 @@ int Driver::connect_to(const std::string& addr, int port, int protocol_id) {
         return COMET_ERROR_FAIL;
     }
 
-    sockaddr_in server_addr;
-    memset((char*)&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    inet_pton(AF_INET, addr.c_str(), &server_addr.sin_addr);
-    server_addr.sin_port = htons(port);
-
-    sockaddr_in local_addr;
-    memset((char*)&local_addr, 0, sizeof(local_addr));
-    local_addr.sin_family = AF_INET;
-    local_addr.sin_addr.S_un.S_addr = INADDR_ANY;
-    local_addr.sin_port = 0;
+    // 准备服务器地址
+    sockaddr_storage server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    int server_addr_len = 0;
     
-    if (SOCKET_ERROR == bind(connect_fd, (sockaddr*)&local_addr, sizeof(local_addr))) {
+    if (addr_family == AF_INET) {
+        sockaddr_in* addr_in = (sockaddr_in*)&server_addr;
+        addr_in->sin_family = AF_INET;
+        inet_pton(AF_INET, addr.c_str(), &addr_in->sin_addr);
+        addr_in->sin_port = htons(port);
+        server_addr_len = sizeof(sockaddr_in);
+    } else { // AF_INET6
+        sockaddr_in6* addr_in6 = (sockaddr_in6*)&server_addr;
+        addr_in6->sin6_family = AF_INET6;
+        inet_pton(AF_INET6, addr.c_str(), &addr_in6->sin6_addr);
+        addr_in6->sin6_port = htons(port);
+        server_addr_len = sizeof(sockaddr_in6);
+    }
+
+    // 绑定本地地址
+    sockaddr_storage local_addr;
+    memset(&local_addr, 0, sizeof(local_addr));
+    int local_addr_len = 0;
+    
+    if (addr_family == AF_INET) {
+        sockaddr_in* local_in = (sockaddr_in*)&local_addr;
+        local_in->sin_family = AF_INET;
+        local_in->sin_addr.S_un.S_addr = INADDR_ANY;
+        local_in->sin_port = 0;
+        local_addr_len = sizeof(sockaddr_in);
+    } else { // AF_INET6
+        sockaddr_in6* local_in6 = (sockaddr_in6*)&local_addr;
+        local_in6->sin6_family = AF_INET6;
+        local_in6->sin6_addr = in6addr_any;
+        local_in6->sin6_port = 0;
+        local_addr_len = sizeof(sockaddr_in6);
+    }
+    
+    if (SOCKET_ERROR == bind(connect_fd, (sockaddr*)&local_addr, local_addr_len)) {
         close_context(node_ctx);
         return COMET_ERROR_FAIL;
     }
@@ -191,7 +268,7 @@ int Driver::connect_to(const std::string& addr, int port, int protocol_id) {
     io_ctx->fd = connect_fd;
     memset((char*)&io_ctx->overlapped, 0, sizeof(OVERLAPPED));
     
-    if (!_connectex(connect_fd, (sockaddr*)&server_addr, sizeof(server_addr), NULL, 0, NULL, &io_ctx->overlapped)) {
+    if (!_connectex(connect_fd, (sockaddr*)&server_addr, server_addr_len, NULL, 0, NULL, &io_ctx->overlapped)) {
         if (WSA_IO_PENDING != WSAGetLastError()) {
             node_ctx->erase_io(io_ctx);
             close_context(node_ctx);
@@ -249,15 +326,19 @@ void Driver::close_node(SOCKET fd) {
 
 int Driver::post_accept(Node* node_ctx, IoContext* io_ctx) {
     memset((char*)&io_ctx->overlapped, 0, sizeof(OVERLAPPED));
-    io_ctx->fd = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
+    
+    // 根据监听 socket 的地址族创建 accept socket
+    int addr_family = node_ctx->addr_family;
+    io_ctx->fd = WSASocket(addr_family, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
     if (INVALID_SOCKET == io_ctx->fd) {
         close_context(node_ctx);
         return -1;
     }
     
+    // 使用 sockaddr_in6 的大小（足够容纳 IPv4 和 IPv6）
+    int addr_size = sizeof(sockaddr_in6) + 16;
     DWORD dw_t;
-    if (!_acceptex(node_ctx->fd, io_ctx->fd, io_ctx->wsa_buff.buf, 0, sizeof(sockaddr_in) + 16,
-        sizeof(sockaddr_in) + 16, &dw_t, &io_ctx->overlapped)) {
+    if (!_acceptex(node_ctx->fd, io_ctx->fd, io_ctx->wsa_buff.buf, 0, addr_size, addr_size, &dw_t, &io_ctx->overlapped)) {
         if (WSA_IO_PENDING != WSAGetLastError()) {
             close_context(node_ctx);
             return -1;
@@ -357,17 +438,22 @@ void Driver::work() {
 }
 
 void Driver::on_accept(Node* node_ctx, IoContext* io_ctx) {
-    SOCKADDR_IN* remote = NULL;
-    SOCKADDR_IN* local = NULL;
-    int len_r = sizeof(SOCKADDR_IN);
-    int len_l = sizeof(SOCKADDR_IN);
-    _get_acceptex_sock_addrs(io_ctx->wsa_buff.buf, 0, sizeof(SOCKADDR_IN) + 16, sizeof(SOCKADDR_IN) + 16,
+    // 使用 SOCKADDR_STORAGE 容纳 IPv4 或 IPv6 地址
+    SOCKADDR_STORAGE* remote = NULL;
+    SOCKADDR_STORAGE* local = NULL;
+    int len_r = sizeof(SOCKADDR_STORAGE);
+    int len_l = sizeof(SOCKADDR_STORAGE);
+    
+    // 使用 sockaddr_in6 的大小（足够容纳 IPv4 和 IPv6）
+    int addr_size = sizeof(sockaddr_in6) + 16;
+    _get_acceptex_sock_addrs(io_ctx->wsa_buff.buf, 0, addr_size, addr_size,
         (LPSOCKADDR*)&local, &len_l, (LPSOCKADDR*)&remote, &len_r);
     
     Node* n = new Node;
     n->fd = io_ctx->fd;
     n->role = Role_Client;
     n->protocol_id = node_ctx->protocol_id;
+    n->addr_family = node_ctx->addr_family;  // 继承监听 socket 的地址族
     
     if (NULL == CreateIoCompletionPort((HANDLE)io_ctx->fd, _iocp, (ULONG_PTR)n, 0)) {
         close_context(n);
@@ -383,7 +469,21 @@ void Driver::on_accept(Node* node_ctx, IoContext* io_ctx) {
         connect_cb = _protocols[n->protocol_id].connect_cb;
     }
     if (connect_cb) {
-        if (0 != connect_cb(io_ctx->fd, remote->sin_addr, ntohs(remote->sin_port))) {
+        // 构建 AddressInfo
+        AddressInfo addr_info;
+        addr_info.family = remote->ss_family;
+        
+        if (remote->ss_family == AF_INET) {
+            sockaddr_in* remote_in = (sockaddr_in*)remote;
+            addr_info.addr.ipv4 = remote_in->sin_addr;
+            addr_info.port = ntohs(remote_in->sin_port);
+        } else if (remote->ss_family == AF_INET6) {
+            sockaddr_in6* remote_in6 = (sockaddr_in6*)remote;
+            addr_info.addr.ipv6 = remote_in6->sin6_addr;
+            addr_info.port = ntohs(remote_in6->sin6_port);
+        }
+        
+        if (0 != connect_cb(io_ctx->fd, addr_info)) {
             close_context(n);
             return;
         }
@@ -407,7 +507,11 @@ void Driver::on_connecting(Node* node_ctx, IoContext* io_ctx) {
         connect_cb = _protocols[node_ctx->protocol_id].connect_cb;
     }
     if (connect_cb) {
-        connect_cb(node_ctx->fd, IN_ADDR{INADDR_ANY}, 0);
+        // 客户端连接成功，传递地址信息
+        AddressInfo addr_info;
+        addr_info.family = node_ctx->addr_family;
+        addr_info.port = 0;
+        connect_cb(node_ctx->fd, addr_info);
     }
     
     node_ctx->erase_io(io_ctx);

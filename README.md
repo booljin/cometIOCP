@@ -1,6 +1,6 @@
 <!--
 META DATA - 元数据
-文档更新日期: 2026-03-11
+文档更新日期: 2026-03-13
 
 【重要通知 - 致未来维护此文档的 AI】
 
@@ -22,6 +22,7 @@ META DATA - 元数据
 - **动态缓冲区** - 按需扩容/缩容，避免内存浪费
 - **客户端/服务端** - 同时支持监听端口和主动连接
 - **零拷贝发送** - `send_data_raw` 支持直接使用用户内存
+- **IPv4/IPv6 双栈** - 自动检测地址类型，无缝支持 IPv6
 
 ## 项目结构
 
@@ -76,7 +77,7 @@ int main() {
     Driver server;
 
     int proto_id = server.register_protocol(
-        [](SOCKET fd, IN_ADDR addr, int port) -> int {
+        [](SOCKET fd, const AddressInfo& addr) -> int {
             std::cout << "Client connected" << std::endl;
             return 0;
         },
@@ -119,7 +120,7 @@ int main() {
     SOCKET client_fd = INVALID_SOCKET;
 
     int proto_id = client.register_protocol(
-        [&](SOCKET fd, IN_ADDR addr, int port) -> int {
+        [&](SOCKET fd, const AddressInfo& addr) -> int {
             std::cout << "Connected" << std::endl;
             client_fd = fd;
             return 0;
@@ -186,8 +187,8 @@ if (!wsa.is_ok()) {              // 检查是否成功
 | 方法 | 说明 |
 |------|------|
 | `int register_protocol(on_connect, on_recv, on_close)` | 注册协议，返回协议 ID |
-| `int listen_on(addr, port, protocol_id)` | 在指定端口监听 |
-| `int connect_to(addr, port, protocol_id)` | 连接到远程服务器 |
+| `int listen_on(addr, port, protocol_id)` | 在指定端口监听（支持 IPv4/IPv6） |
+| `int connect_to(addr, port, protocol_id)` | 连接到远程服务器（支持 IPv4/IPv6） |
 
 #### 数据发送
 
@@ -200,14 +201,53 @@ if (!wsa.is_ok()) {              // 检查是否成功
 ### 回调函数签名
 
 ```cpp
+// 地址信息结构体（支持 IPv4 和 IPv6）
+struct AddressInfo {
+    int family;         // AF_INET 或 AF_INET6
+    int port;           // 端口号
+    
+    bool is_ipv6() const;                 // 检查是否为 IPv6
+    const IN_ADDR& get_ipv4() const;      // 获取 IPv4 地址
+    const IN6_ADDR& get_ipv6() const;     // 获取 IPv6 地址
+};
+
 // 连接回调：返回 0 接受连接，非 0 拒绝
-using ConnectCallback = std::function<int(SOCKET fd, IN_ADDR addr, int port)>;
+using ConnectCallback = std::function<int(SOCKET fd, const AddressInfo& addr)>;
 
 // 接收回调：返回已处理的字节数
 using RecvCallback = std::function<int(SOCKET fd, unsigned char* buff, int len)>;
 
 // 关闭回调
 using CloseCallback = std::function<void(SOCKET fd)>;
+```
+
+### IPv6 使用示例
+
+```cpp
+// IPv4 监听
+server.listen_on("0.0.0.0", 8089, proto_id);
+
+// IPv6 监听
+server.listen_on("::", 8089, proto_id);
+
+// IPv4 连接
+client.connect_to("127.0.0.1", 8089, proto_id);
+
+// IPv6 连接
+client.connect_to("::1", 8089, proto_id);
+
+// 连接回调中获取地址信息
+int on_connect(SOCKET fd, const AddressInfo& addr) {
+    char buf[INET6_ADDRSTRLEN] = {0};
+    if (addr.is_ipv6()) {
+        inet_ntop(AF_INET6, &addr.get_ipv6(), buf, sizeof(buf));
+        std::cout << "IPv6 连接: [" << buf << "]:" << addr.port << std::endl;
+    } else {
+        inet_ntop(AF_INET, &addr.get_ipv4(), buf, sizeof(buf));
+        std::cout << "IPv4 连接: " << buf << ":" << addr.port << std::endl;
+    }
+    return 0;
+}
 ```
 
 ### 错误码

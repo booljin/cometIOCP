@@ -284,7 +284,7 @@ build\Debug\stress_test.exe
 
 - Windows SDK (WinSock2, mswsock)
 - C++17 或更高版本
-- CMake 3.10+
+- CMake 3.21+
 
 ## License
 

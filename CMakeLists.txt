@@ -1,7 +1,7 @@
 # =============================================================================
 # CMake 最低版本 + 项目定义
 # =============================================================================
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.21)
 project(cometIOCP VERSION 1.0.0 LANGUAGES CXX)
 
 # =============================================================================
@@ -51,20 +51,30 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 # =============================================================================
+# 编译选项
+# =============================================================================
+option(cometIOCP_BUILD_EXAMPLES "Build cometIOCP example programs" ${PROJECT_IS_TOP_LEVEL})
+option(cometIOCP_BUILD_TESTING "Build cometIOCP test programs" ${PROJECT_IS_TOP_LEVEL})
+
+# =============================================================================
 # 示例程序
 # =============================================================================
-add_executable(echo_server example/server.cpp)
-target_link_libraries(echo_server PRIVATE ${PROJECT_NAME})
+if(cometIOCP_BUILD_EXAMPLES)
+    add_executable(echo_server example/server.cpp)
+    target_link_libraries(echo_server PRIVATE ${PROJECT_NAME})
 
-add_executable(echo_client example/client.cpp)
-target_link_libraries(echo_client PRIVATE ${PROJECT_NAME})
+    add_executable(echo_client example/client.cpp)
+    target_link_libraries(echo_client PRIVATE ${PROJECT_NAME})
+endif()
 
 # =============================================================================
 # 测试程序
 # =============================================================================
-enable_testing()
+if(cometIOCP_BUILD_TESTING)
+    enable_testing()
 
-add_executable(stress_test test/stress_test.cpp)
-target_link_libraries(stress_test PRIVATE ${PROJECT_NAME})
+    add_executable(stress_test test/stress_test.cpp)
+    target_link_libraries(stress_test PRIVATE ${PROJECT_NAME})
 
-add_test(NAME stress_test COMMAND stress_test)
+    add_test(NAME stress_test COMMAND stress_test)
+endif()

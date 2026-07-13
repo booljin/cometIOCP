@@ -91,16 +91,17 @@ void Driver::set_buffer_config(const BufferConfig& config) {
 }
 
 int Driver::register_protocol(ConnectCallback on_connect, RecvCallback on_recv, CloseCallback on_close) {
-    if (_running) {
-        return COMET_ERROR_FAIL;
-    }
+    std::unique_lock<std::shared_mutex> lock(_protocol_mtx);  // 写锁：独占
     _protocols.emplace_back(Protocol{(int)_protocols.size(), on_connect, on_recv, on_close});
     return static_cast<int>(_protocols.size() - 1);
 }
 
 int Driver::listen_on(const std::string& addr, int port, int protocol_id) {
-    if (protocol_id < 0 || protocol_id >= (int)_protocols.size()) {
-        return COMET_ERROR_INVALID_PROTOCOL;
+    {
+        std::shared_lock<std::shared_mutex> lock(_protocol_mtx);  // 读锁：共享
+        if (protocol_id < 0 || protocol_id >= (int)_protocols.size()) {
+            return COMET_ERROR_INVALID_PROTOCOL;
+        }
     }
     
     // 检测地址族
@@ -178,8 +179,11 @@ int Driver::listen_on(const std::string& addr, int port, int protocol_id) {
 }
 
 int Driver::connect_to(const std::string& addr, int port, int protocol_id) {
-    if (protocol_id < 0 || protocol_id >= (int)_protocols.size()) {
-        return COMET_ERROR_INVALID_PROTOCOL;
+    {
+        std::shared_lock<std::shared_mutex> lock(_protocol_mtx);  // 读锁：共享
+        if (protocol_id < 0 || protocol_id >= (int)_protocols.size()) {
+            return COMET_ERROR_INVALID_PROTOCOL;
+        }
     }
     
     // 检测地址族
@@ -465,8 +469,11 @@ void Driver::on_accept(Node* node_ctx, IoContext* io_ctx) {
     }
 
     ConnectCallback connect_cb;
-    if (n->protocol_id >= 0 && n->protocol_id < (int)_protocols.size()) {
-        connect_cb = _protocols[n->protocol_id].connect_cb;
+    {
+        std::shared_lock<std::shared_mutex> lock(_protocol_mtx);  // 读锁：共享
+        if (n->protocol_id >= 0 && n->protocol_id < (int)_protocols.size()) {
+            connect_cb = _protocols[n->protocol_id].connect_cb;
+        }
     }
     if (connect_cb) {
         // 构建 AddressInfo
@@ -503,8 +510,11 @@ void Driver::on_accept(Node* node_ctx, IoContext* io_ctx) {
 
 void Driver::on_connecting(Node* node_ctx, IoContext* io_ctx) {
     ConnectCallback connect_cb;
-    if (node_ctx->protocol_id >= 0 && node_ctx->protocol_id < (int)_protocols.size()) {
-        connect_cb = _protocols[node_ctx->protocol_id].connect_cb;
+    {
+        std::shared_lock<std::shared_mutex> lock(_protocol_mtx);  // 读锁：共享
+        if (node_ctx->protocol_id >= 0 && node_ctx->protocol_id < (int)_protocols.size()) {
+            connect_cb = _protocols[node_ctx->protocol_id].connect_cb;
+        }
     }
     if (connect_cb) {
         // 客户端连接成功，传递地址信息
@@ -548,8 +558,11 @@ void Driver::on_recv(Node* node_ctx, IoContext* io_ctx, int bytes) {
     node_ctx->data_size = node_ctx->data_size + bytes;
     
     RecvCallback recv_cb;
-    if (node_ctx->protocol_id >= 0 && node_ctx->protocol_id < (int)_protocols.size()) {
-        recv_cb = _protocols[node_ctx->protocol_id].recv_cb;
+    {
+        std::shared_lock<std::shared_mutex> lock(_protocol_mtx);  // 读锁：共享
+        if (node_ctx->protocol_id >= 0 && node_ctx->protocol_id < (int)_protocols.size()) {
+            recv_cb = _protocols[node_ctx->protocol_id].recv_cb;
+        }
     }
     if (recv_cb) {
         int recv_len = recv_cb(node_ctx->fd, node_ctx->buffer, node_ctx->data_size);
@@ -606,10 +619,14 @@ void Driver::close_context(Node* node_ctx) {
         _nodes.erase(fd);
     }
     
-    if (node_ctx->protocol_id >= 0 && node_ctx->protocol_id < (int)_protocols.size()) {
-        CloseCallback close_cb = _protocols[node_ctx->protocol_id].close_cb;
-        if (close_cb) close_cb(fd);
+    CloseCallback close_cb;
+    {
+        std::shared_lock<std::shared_mutex> lock(_protocol_mtx);  // 读锁：共享
+        if (node_ctx->protocol_id >= 0 && node_ctx->protocol_id < (int)_protocols.size()) {
+            close_cb = _protocols[node_ctx->protocol_id].close_cb;
+        }
     }
+    if (close_cb) close_cb(fd);
     delete node_ctx;
 }
 

@@ -20,6 +20,7 @@
 #include <map>
 #include <thread>
 #include <mutex>
+#include <shared_mutex>
 #include <atomic>
 
 // 内部类型定义（包含 AddressInfo, ConnectCallback 等）
@@ -92,7 +93,7 @@ public:
     void register_monitor(MonitorCallback handle);
 
     // 注册协议，返回协议 ID
-    // 警告：必须在 run() 之前调用！运行时注册会导致数据竞争
+    // 线程安全：可在任意时刻调用，支持运行时注册
     int register_protocol(ConnectCallback on_connect, RecvCallback on_recv, CloseCallback on_close);
 
     // 在指定地址端口上监听，关联指定协议
@@ -133,6 +134,7 @@ protected:
     std::map<SOCKET, Node*> _nodes;
     std::mutex _node_mtx;
     std::vector<Protocol> _protocols;
+    mutable std::shared_mutex _protocol_mtx;  // 读写锁：支持并发读、独占写
     MonitorCallback _monitor{ nullptr };
     BufferConfig _buffer_config;
 
